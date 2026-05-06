@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::process::{self};
 
 fn main() {
-    let mut map = HashMap::from([
+    let map = HashMap::from([
         ("type", "builtin"),
         ("exit", "builtin"),
         ("echo", "builtin"),
