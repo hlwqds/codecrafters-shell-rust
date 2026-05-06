@@ -1,11 +1,17 @@
 #[allow(unused_imports)]
 use std::fs;
+use std::fs::File;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::process::{self, Command};
 use std::{collections::HashMap, env};
+
+struct Redirect {
+    stdout: Option<PathBuf>,
+}
 
 fn is_executable(path: &Path) -> bool {
     if let Ok(metadata) = fs::metadata(path) {
@@ -26,11 +32,13 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
     None
 }
 
-fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str) {
+fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str, redirect: &Redirect) {
     if let Some(value) = builtins.get(target) {
-        println!("{} is a shell {}", target, value);
+        let s = format!("{} is a shell {}", target, value);
+        write_output(&s, redirect);
     } else if let Some(full_path) = find_in_path(target, path) {
-        println!("{} is {}", target, full_path.display());
+        let s = format!("{} is {}", target, full_path.display());
+        write_output(&s, redirect);
     } else {
         println!("{}: not found", target);
     }
@@ -60,9 +68,19 @@ fn handle_cd(args: &[String]) {
     }
 }
 
-fn execute_external(target: &str, args: &[String], path: &str) {
+fn apply_redirect(command: &mut Command, redirect: &Redirect) {
+    if let Some(path) = &redirect.stdout {
+        let file = File::create(path).unwrap();
+        command.stdout(Stdio::from(file));
+    }
+}
+
+fn execute_external(target: &str, args: &[String], path: &str, redirect: &Redirect) {
     if let Some(full_path) = find_in_path(target, path) {
-        let status = Command::new(full_path).arg0(target).args(args).status();
+        let mut command = Command::new(full_path);
+        command.arg0(target).args(args);
+        apply_redirect(&mut command, redirect);
+        let status = command.status();
         if status.is_err() {
             println!("{}: exec error", target);
         }
@@ -71,7 +89,42 @@ fn execute_external(target: &str, args: &[String], path: &str) {
     }
 }
 
+fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
+    let mut cmd_args = Vec::new();
+    let mut redirect = Redirect { stdout: None };
+
+    let mut i = 0;
+    while i < args.len() {
+        let token = &args[i];
+        if token == ">" || token == "1>" {
+            if i + 1 < args.len() {
+                redirect.stdout = Some(PathBuf::from(&args[i + 1]));
+            }
+            break;
+        } else {
+            cmd_args.push(token.clone());
+        }
+        i += 1
+    }
+
+    (cmd_args, redirect)
+}
+
+fn write_output(text: &str, redirect: &Redirect) {
+    if let Some(path) = &redirect.stdout {
+        std::fs::write(path, format!("{}\n", text)).unwrap();
+    } else {
+        println!("{}", text);
+    }
+}
+
 fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
+    if args.is_empty() {
+        return;
+    }
+
+    let (args, redirect) = split_redirect(args);
+
     if args.is_empty() {
         return;
     }
@@ -79,13 +132,15 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
     let cmd = args[0].as_str();
     match cmd {
         "exit" => process::exit(0),
-        "echo" => println!("{}", args[1..].join(" ")),
+        "echo" => {
+            write_output(args[1..].join(" ").as_str(), &redirect);
+        }
         "type" => {
             if args.len() != 2 {
                 println!("type needs one arg");
                 return;
             }
-            handle_type(args[1].as_str(), builtins, path);
+            handle_type(args[1].as_str(), builtins, path, &redirect);
         }
         "pwd" => {
             if args.len() != 1 {
@@ -93,7 +148,8 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
                 return;
             }
             let cwd = std::env::current_dir().unwrap_or_default();
-            println!("{}", cwd.display());
+            let s = format!("{}", cwd.display());
+            write_output(&s, &redirect);
         }
         "cd" => {
             if args.len() > 2 {
@@ -102,7 +158,7 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
             }
             handle_cd(&args[1..]);
         }
-        _ => execute_external(cmd, &args[1..], path),
+        _ => execute_external(cmd, &args[1..], path, &redirect),
     }
 }
 
