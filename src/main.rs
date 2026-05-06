@@ -1,7 +1,19 @@
-use std::collections::HashMap;
 #[allow(unused_imports)]
+use std::fs;
 use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::process::{self};
+use std::{collections::HashMap, env};
+
+fn is_executable(path: &Path) -> bool {
+    if let Ok(metadata) = fs::metadata(path) {
+        if metadata.is_file() {
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+    }
+    false
+}
 
 fn main() {
     let map = HashMap::from([
@@ -9,6 +21,8 @@ fn main() {
         ("exit", "builtin"),
         ("echo", "builtin"),
     ]);
+    let path = env::var("PATH").unwrap_or_default();
+
     // TODO: Uncomment the code below to pass the first stage
     let mut buffer = String::new();
     loop {
@@ -36,7 +50,18 @@ fn main() {
                 let target = args[1];
                 if let Some(value) = map.get(target) {
                     println!("{} is a shell {}", args[1], value);
-                } else {
+                    continue;
+                }
+                let mut found = false;
+                for p in env::split_paths(&path) {
+                    let full_path = p.join(target);
+                    if is_executable(&full_path) {
+                        println!("{} is {}", target, full_path.display());
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
                     println!("{}: not found", target);
                 }
             }
