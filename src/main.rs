@@ -63,6 +63,14 @@ fn handle_command(args: &[&str], builtins: &HashMap<&str, &str>, path: &str) {
             }
             handle_type(args[1], builtins, path);
         }
+        "pwd" => {
+            if args.len() != 1 {
+                println!("pwd needs no arg");
+                return;
+            }
+            let cwd = std::env::current_dir().unwrap_or_default();
+            println!("{}", cwd.display());
+        }
         _ => execute_external(cmd, &args[1..], path),
     }
 }
@@ -71,6 +79,7 @@ fn main() {
     let builtins = HashMap::from([
         ("type", "builtin"),
         ("exit", "builtin"),
+        ("echo", "builtin"),
         ("echo", "builtin"),
     ]);
     let path = env::var("PATH").unwrap_or_default();
