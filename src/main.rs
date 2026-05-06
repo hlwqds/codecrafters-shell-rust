@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use std::fs;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -11,7 +11,9 @@ use std::{collections::HashMap, env};
 
 struct Redirect {
     stdout: Option<PathBuf>,
+    stdout_append: bool,
     stderr: Option<PathBuf>,
+    stderr_append: bool,
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -31,6 +33,16 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn open_redirect_file(path: &Path, append: bool) -> File {
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+        .unwrap()
 }
 
 fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str, redirect: &Redirect) {
@@ -74,12 +86,12 @@ fn handle_cd(args: &[String], redirect: &Redirect) {
 
 fn apply_redirect(command: &mut Command, redirect: &Redirect) {
     if let Some(path) = &redirect.stdout {
-        let file = File::create(path).unwrap();
+        let file = open_redirect_file(path, redirect.stdout_append);
         command.stdout(Stdio::from(file));
     }
 
     if let Some(path) = &redirect.stderr {
-        let file = File::create(path).unwrap();
+        let file = open_redirect_file(path, redirect.stderr_append);
         command.stderr(Stdio::from(file));
     }
 }
@@ -104,7 +116,9 @@ fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
     let mut cmd_args = Vec::new();
     let mut redirect = Redirect {
         stdout: None,
+        stdout_append: false,
         stderr: None,
+        stderr_append: false,
     };
 
     let mut i = 0;
@@ -120,6 +134,18 @@ fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
                 redirect.stderr = Some(PathBuf::from(&args[i + 1]));
             }
             i += 1
+        } else if token == ">>" || token == "1>>" {
+            if i + 1 < args.len() {
+                redirect.stdout = Some(PathBuf::from(&args[i + 1]));
+                redirect.stdout_append = true;
+            }
+            i += 1
+        } else if token == "2>>" {
+            if i + 1 < args.len() {
+                redirect.stderr = Some(PathBuf::from(&args[i + 1]));
+                redirect.stderr_append = true;
+            }
+            i += 1
         } else {
             cmd_args.push(token.clone());
         }
@@ -131,7 +157,8 @@ fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
 
 fn write_output(text: &str, redirect: &Redirect) {
     if let Some(path) = &redirect.stdout {
-        std::fs::write(path, format!("{}\n", text)).unwrap();
+        let mut file = open_redirect_file(path, redirect.stdout_append);
+        writeln!(file, "{}", text).unwrap();
     } else {
         println!("{}", text);
     }
@@ -139,7 +166,8 @@ fn write_output(text: &str, redirect: &Redirect) {
 
 fn write_error(text: &str, redirect: &Redirect) {
     if let Some(path) = &redirect.stderr {
-        std::fs::write(path, format!("{}\n", text)).unwrap();
+        let mut file = open_redirect_file(path, redirect.stderr_append);
+        writeln!(file, "{}", text).unwrap();
     } else {
         let _ = writeln!(std::io::stderr(), "{}", text);
     }
@@ -147,10 +175,10 @@ fn write_error(text: &str, redirect: &Redirect) {
 
 fn prepare_redirect(redirect: &Redirect) {
     if let Some(path) = &redirect.stdout {
-        let _ = File::create(path).unwrap();
+        let _ = open_redirect_file(path, redirect.stdout_append);
     }
     if let Some(path) = &redirect.stderr {
-        let _ = File::create(path).unwrap();
+        let _ = open_redirect_file(path, redirect.stderr_append);
     }
 }
 
