@@ -9,6 +9,62 @@ use std::process::Stdio;
 use std::process::{self, Command};
 use std::{collections::HashMap, env};
 
+use rustyline::Context;
+use rustyline::Editor;
+use rustyline::Helper;
+use rustyline::completion::Completer;
+use rustyline::completion::Pair;
+use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::history::DefaultHistory;
+use rustyline::validate::Validator;
+
+use once_cell::sync::Lazy;
+struct ShellHelper;
+
+impl Helper for ShellHelper {}
+impl Highlighter for ShellHelper {}
+impl Validator for ShellHelper {}
+impl Hinter for ShellHelper {
+    type Hint = String;
+
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+impl Completer for ShellHelper {
+    type Candidate = Pair;
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        let prefix = &line[..pos];
+
+        if prefix.contains(' ') || prefix.contains('\t') {
+            return Ok((0, vec![]));
+        }
+
+        let matches: Vec<Pair> = BUILTINS
+            .keys()
+            .filter(|cmd| cmd.starts_with(prefix))
+            .map(|cmd| Pair {
+                display: cmd.to_string(),
+                replacement: format!("{} ", cmd),
+            })
+            .collect();
+
+        if matches.len() == 1 {
+            Ok((0, matches))
+        } else {
+            Ok((0, vec![]))
+        }
+    }
+}
+
 struct Redirect {
     stdout: Option<PathBuf>,
     stdout_append: bool,
@@ -45,9 +101,9 @@ fn open_redirect_file(path: &Path, append: bool) -> File {
         .unwrap()
 }
 
-fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str, redirect: &Redirect) {
-    if let Some(value) = builtins.get(target) {
-        let s = format!("{} is a shell {}", target, value);
+fn handle_type(target: &str, path: &str, redirect: &Redirect) {
+    if let Some(_value) = BUILTINS.get(target) {
+        let s = format!("{} is a shell builtin", target);
         write_output(&s, redirect);
     } else if let Some(full_path) = find_in_path(target, path) {
         let s = format!("{} is {}", target, full_path.display());
@@ -182,7 +238,7 @@ fn prepare_redirect(redirect: &Redirect) {
     }
 }
 
-fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
+fn handle_command(args: &[String], path: &str) {
     if args.is_empty() {
         return;
     }
@@ -205,7 +261,7 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
                 write_error("type needs one arg", &redirect);
                 return;
             }
-            handle_type(args[1].as_str(), builtins, path, &redirect);
+            handle_type(args[1].as_str(), path, &redirect);
         }
         "pwd" => {
             if args.len() != 1 {
@@ -270,26 +326,33 @@ fn parse_args(input: &str) -> Vec<String> {
     args
 }
 
+static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
+    HashMap::from([
+        ("echo", true),
+        ("exit", true),
+        ("type", true),
+        ("pwd", true),
+        ("cd", true),
+    ])
+});
+
 fn main() {
-    let builtins = HashMap::from([
-        ("type", "builtin"),
-        ("exit", "builtin"),
-        ("echo", "builtin"),
-        ("pwd", "builtin"),
-        ("cd", "builtin"),
-    ]);
     let path = env::var("PATH").unwrap_or_default();
 
-    // TODO: Uncomment the code below to pass the first stage
-    let mut buffer = String::new();
+    let mut rl: Editor<ShellHelper, DefaultHistory> = Editor::new().unwrap();
+    rl.set_helper(Some(ShellHelper));
     loop {
-        print!("$ ");
-        io::stdout().flush().unwrap();
-
-        buffer.clear();
-        // Wait for user input
-        io::stdin().read_line(&mut buffer).unwrap();
-        let args: Vec<String> = parse_args(buffer.trim_end_matches(&['\n', '\r']));
-        handle_command(&args, &builtins, &path);
+        match rl.readline("$ ") {
+            Ok(line) => {
+                let args = parse_args(&line);
+                handle_command(&args, &path);
+            }
+            Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
+                process::exit(0);
+            }
+            Err(_) => {
+                process::exit(1);
+            }
+        }
     }
 }
