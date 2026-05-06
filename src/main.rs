@@ -120,7 +120,7 @@ fn parse_args(input: &str) -> Vec<String> {
             continue;
         }
         match c {
-            '\\' if !in_double_quote && !in_single_quote => {
+            '\\' if !in_single_quote => {
                 in_backslash = !in_backslash;
             }
             '"' if !in_single_quote => {
