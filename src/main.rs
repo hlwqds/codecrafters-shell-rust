@@ -80,7 +80,7 @@ fn main() {
         ("type", "builtin"),
         ("exit", "builtin"),
         ("echo", "builtin"),
-        ("echo", "builtin"),
+        ("pwd", "builtin"),
     ]);
     let path = env::var("PATH").unwrap_or_default();
 
