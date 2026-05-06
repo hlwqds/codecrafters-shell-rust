@@ -36,11 +36,11 @@ fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str) {
     }
 }
 
-fn handle_cd(args: &[&str]) {
+fn handle_cd(args: &[String]) {
     let target = if args.len() == 0 {
         std::env::var("HOME").unwrap()
     } else {
-        let input = args[0];
+        let input = args[0].as_str();
         if input == "~" {
             std::env::var("HOME").unwrap()
         } else if input.starts_with("~/") {
@@ -60,7 +60,7 @@ fn handle_cd(args: &[&str]) {
     }
 }
 
-fn execute_external(target: &str, args: &[&str], path: &str) {
+fn execute_external(target: &str, args: &[String], path: &str) {
     if let Some(full_path) = find_in_path(target, path) {
         let status = Command::new(full_path).arg0(target).args(args).status();
         if status.is_err() {
@@ -71,12 +71,12 @@ fn execute_external(target: &str, args: &[&str], path: &str) {
     }
 }
 
-fn handle_command(args: &[&str], builtins: &HashMap<&str, &str>, path: &str) {
+fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
     if args.is_empty() {
         return;
     }
 
-    let cmd = args[0];
+    let cmd = args[0].as_str();
     match cmd {
         "exit" => process::exit(0),
         "echo" => println!("{}", args[1..].join(" ")),
@@ -85,7 +85,7 @@ fn handle_command(args: &[&str], builtins: &HashMap<&str, &str>, path: &str) {
                 println!("type needs one arg");
                 return;
             }
-            handle_type(args[1], builtins, path);
+            handle_type(args[1].as_str(), builtins, path);
         }
         "pwd" => {
             if args.len() != 1 {
@@ -104,6 +104,36 @@ fn handle_command(args: &[&str], builtins: &HashMap<&str, &str>, path: &str) {
         }
         _ => execute_external(cmd, &args[1..], path),
     }
+}
+
+fn parse_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+
+    for c in input.chars() {
+        match c {
+            '\'' => {
+                in_single_quote = !in_single_quote;
+            }
+            ' ' | '\t' if !in_single_quote => {
+                if !current.is_empty() {
+                    args.push(current.clone());
+                    current.clear();
+                }
+            }
+
+            _ => {
+                current.push(c);
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
 }
 
 fn main() {
@@ -125,7 +155,7 @@ fn main() {
         buffer.clear();
         // Wait for user input
         io::stdin().read_line(&mut buffer).unwrap();
-        let args: Vec<&str> = buffer.split_whitespace().collect();
+        let args: Vec<String> = parse_args(buffer.trim_end_matches(&['\n', '\r']));
         handle_command(&args, &builtins, &path);
     }
 }
