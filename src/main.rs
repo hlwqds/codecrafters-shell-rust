@@ -1,8 +1,14 @@
+use std::collections::HashMap;
 #[allow(unused_imports)]
 use std::io::{self, Write};
 use std::process::{self};
 
 fn main() {
+    let mut map = HashMap::from([
+        ("type", "builtin"),
+        ("exit", "builtin"),
+        ("echo", "builtin"),
+    ]);
     // TODO: Uncomment the code below to pass the first stage
     let mut buffer = String::new();
     loop {
@@ -19,12 +25,22 @@ fn main() {
         }
 
         let cmd = args[0];
-        if cmd == "exit" {
-            process::exit(0)
-        } else if cmd == "echo" {
-            println!("{}", args[1..].join(" "));
-        } else {
-            println!("{}: command not found", cmd);
+        match cmd {
+            "exit" => process::exit(0),
+            "echo" => println!("{}", args[1..].join(" ")),
+            "type" => {
+                if args.len() != 2 {
+                    println!("type needs one arg");
+                    continue;
+                }
+                let target = args[1];
+                if let Some(value) = map.get(target) {
+                    println!("{} is a shell {}", args[1], value);
+                } else {
+                    println!("{}: not found", target);
+                }
+            }
+            _ => println!("{}: command not found", cmd),
         }
     }
 }
