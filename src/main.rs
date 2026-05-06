@@ -36,6 +36,30 @@ fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str) {
     }
 }
 
+fn handle_cd(args: &[&str]) {
+    let target = if args.len() == 0 {
+        std::env::var("HOME").unwrap()
+    } else {
+        let input = args[0];
+        if input == "~" {
+            std::env::var("HOME").unwrap()
+        } else if input.starts_with("~/") {
+            let home = std::env::var("HOME").unwrap();
+            format!("{}/{}", home, &input[2..])
+        } else {
+            input.to_string()
+        }
+    };
+    if let Err(e) = std::env::set_current_dir(&target) {
+        let msg = match e.kind() {
+            io::ErrorKind::NotFound => "No such file or directory",
+            io::ErrorKind::PermissionDenied => "Permission denied",
+            _ => "Error",
+        };
+        println!("cd: {}: {}", target, msg);
+    }
+}
+
 fn execute_external(target: &str, args: &[&str], path: &str) {
     if let Some(full_path) = find_in_path(target, path) {
         let status = Command::new(full_path).arg0(target).args(args).status();
@@ -71,6 +95,13 @@ fn handle_command(args: &[&str], builtins: &HashMap<&str, &str>, path: &str) {
             let cwd = std::env::current_dir().unwrap_or_default();
             println!("{}", cwd.display());
         }
+        "cd" => {
+            if args.len() > 2 {
+                println!("cd needs less args");
+                return;
+            }
+            handle_cd(&args[1..]);
+        }
         _ => execute_external(cmd, &args[1..], path),
     }
 }
@@ -81,6 +112,7 @@ fn main() {
         ("exit", "builtin"),
         ("echo", "builtin"),
         ("pwd", "builtin"),
+        ("cd", "builtin"),
     ]);
     let path = env::var("PATH").unwrap_or_default();
 
