@@ -11,6 +11,7 @@ use std::{collections::HashMap, env};
 
 struct Redirect {
     stdout: Option<PathBuf>,
+    stderr: Option<PathBuf>,
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -40,11 +41,12 @@ fn handle_type(target: &str, builtins: &HashMap<&str, &str>, path: &str, redirec
         let s = format!("{} is {}", target, full_path.display());
         write_output(&s, redirect);
     } else {
-        println!("{}: not found", target);
+        let s = format!("{}: not found", target);
+        write_error(&s, redirect);
     }
 }
 
-fn handle_cd(args: &[String]) {
+fn handle_cd(args: &[String], redirect: &Redirect) {
     let target = if args.len() == 0 {
         std::env::var("HOME").unwrap()
     } else {
@@ -64,7 +66,9 @@ fn handle_cd(args: &[String]) {
             io::ErrorKind::PermissionDenied => "Permission denied",
             _ => "Error",
         };
-        println!("cd: {}: {}", target, msg);
+
+        let s = format!("cd: {}: {}", target, msg);
+        write_error(&s, redirect);
     }
 }
 
@@ -72,6 +76,11 @@ fn apply_redirect(command: &mut Command, redirect: &Redirect) {
     if let Some(path) = &redirect.stdout {
         let file = File::create(path).unwrap();
         command.stdout(Stdio::from(file));
+    }
+
+    if let Some(path) = &redirect.stderr {
+        let file = File::create(path).unwrap();
+        command.stderr(Stdio::from(file));
     }
 }
 
@@ -82,16 +91,21 @@ fn execute_external(target: &str, args: &[String], path: &str, redirect: &Redire
         apply_redirect(&mut command, redirect);
         let status = command.status();
         if status.is_err() {
-            println!("{}: exec error", target);
+            let s = format!("{}: exec error", target);
+            write_error(&s, redirect);
         }
     } else {
-        println!("{}: command not found", target);
+        let s = format!("{}: command not found", target);
+        write_error(&s, redirect);
     }
 }
 
 fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
     let mut cmd_args = Vec::new();
-    let mut redirect = Redirect { stdout: None };
+    let mut redirect = Redirect {
+        stdout: None,
+        stderr: None,
+    };
 
     let mut i = 0;
     while i < args.len() {
@@ -100,7 +114,12 @@ fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
             if i + 1 < args.len() {
                 redirect.stdout = Some(PathBuf::from(&args[i + 1]));
             }
-            break;
+            i += 1
+        } else if token == "2>" {
+            if i + 1 < args.len() {
+                redirect.stderr = Some(PathBuf::from(&args[i + 1]));
+            }
+            i += 1
         } else {
             cmd_args.push(token.clone());
         }
@@ -118,12 +137,30 @@ fn write_output(text: &str, redirect: &Redirect) {
     }
 }
 
+fn write_error(text: &str, redirect: &Redirect) {
+    if let Some(path) = &redirect.stderr {
+        std::fs::write(path, format!("{}\n", text)).unwrap();
+    } else {
+        let _ = writeln!(std::io::stderr(), "{}", text);
+    }
+}
+
+fn prepare_redirect(redirect: &Redirect) {
+    if let Some(path) = &redirect.stdout {
+        let _ = File::create(path).unwrap();
+    }
+    if let Some(path) = &redirect.stderr {
+        let _ = File::create(path).unwrap();
+    }
+}
+
 fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
     if args.is_empty() {
         return;
     }
 
     let (args, redirect) = split_redirect(args);
+    prepare_redirect(&redirect);
 
     if args.is_empty() {
         return;
@@ -137,14 +174,14 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
         }
         "type" => {
             if args.len() != 2 {
-                println!("type needs one arg");
+                write_error("type needs one arg", &redirect);
                 return;
             }
             handle_type(args[1].as_str(), builtins, path, &redirect);
         }
         "pwd" => {
             if args.len() != 1 {
-                println!("pwd needs no arg");
+                write_error("pwd needs no arg", &redirect);
                 return;
             }
             let cwd = std::env::current_dir().unwrap_or_default();
@@ -153,10 +190,10 @@ fn handle_command(args: &[String], builtins: &HashMap<&str, &str>, path: &str) {
         }
         "cd" => {
             if args.len() > 2 {
-                println!("cd needs less args");
+                write_error("cd needs less args", &redirect);
                 return;
             }
-            handle_cd(&args[1..]);
+            handle_cd(&args[1..], &redirect);
         }
         _ => execute_external(cmd, &args[1..], path, &redirect),
     }
