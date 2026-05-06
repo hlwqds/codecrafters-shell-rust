@@ -111,11 +111,22 @@ fn parse_args(input: &str) -> Vec<String> {
     let mut current = String::new();
     let mut in_single_quote = false;
     let mut in_double_quote = false;
+    let mut in_backslash = false;
 
     for c in input.chars() {
+        if in_backslash {
+            current.push(c);
+            in_backslash = !in_backslash;
+            continue;
+        }
         match c {
-            '\"' if !in_single_quote => {
-                in_double_quote = !in_double_quote;
+            '\\' if !in_single_quote && !in_double_quote => {
+                in_backslash = !in_backslash;
+            }
+            '\"' => {
+                if !in_single_quote {
+                    in_double_quote = !in_double_quote;
+                }
             }
             '\'' if !in_double_quote => {
                 in_single_quote = !in_single_quote;
