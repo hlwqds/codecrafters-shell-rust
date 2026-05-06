@@ -1,5 +1,6 @@
 #[allow(unused_imports)]
 use std::io::{self, Write};
+use std::process::{self, ExitCode};
 
 fn main() {
     // TODO: Uncomment the code below to pass the first stage
@@ -11,6 +12,11 @@ fn main() {
         command.clear();
         // Wait for user input
         io::stdin().read_line(&mut command).unwrap();
-        println!("{}: command not found", command.trim());
+        let cmd = command.trim();
+        if cmd == "exit" {
+            process::exit(0)
+        } else {
+            println!("{}: command not found", cmd);
+        }
     }
 }
