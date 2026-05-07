@@ -209,6 +209,14 @@ fn handle_type(target: &str, path: &str, redirect: &Redirect) {
     }
 }
 
+fn handle_complete(args: &[String], redirect: &Redirect) {
+    if args.len() != 2 {
+        write_error("not enought args", redirect);
+    }
+    let s = format!("complete: {}: no completion specification", args[1]);
+    write_error(&s, redirect);
+}
+
 fn handle_cd(args: &[String], redirect: &Redirect) {
     let target = if args.len() == 0 {
         std::env::var("HOME").unwrap()
@@ -373,6 +381,9 @@ fn handle_command(args: &[String], path: &str) {
                 return;
             }
             handle_cd(&args[1..], &redirect);
+        }
+        "complete" => {
+            handle_complete(&args[1..], &redirect);
         }
         _ => execute_external(cmd, &args[1..], path, &redirect),
     }
