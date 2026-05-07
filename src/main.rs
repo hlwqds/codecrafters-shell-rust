@@ -48,7 +48,9 @@ impl Completer for ShellHelper {
             return Ok((0, vec![]));
         }
 
-        let matches: Vec<Pair> = BUILTINS
+        let path = env::var("PATH").unwrap_or_default();
+
+        let mut matches: Vec<Pair> = BUILTINS
             .keys()
             .filter(|cmd| cmd.starts_with(prefix))
             .map(|cmd| Pair {
@@ -57,11 +59,15 @@ impl Completer for ShellHelper {
             })
             .collect();
 
-        if matches.len() == 1 {
-            Ok((0, matches))
-        } else {
-            Ok((0, vec![]))
-        }
+        let matches2: Vec<Pair> = find_prefix_in_path(prefix, &path)
+            .into_iter()
+            .map(|cmd| Pair {
+                display: cmd.clone(),
+                replacement: format!("{} ", cmd),
+            })
+            .collect();
+        matches.extend(matches2);
+        Ok((0, matches))
     }
 }
 
@@ -89,6 +95,21 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn find_prefix_in_path(prefix: &str, path: &str) -> Vec<String> {
+    let mut cmds = vec![];
+    for dir in env::split_paths(path) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(prefix) {
+                    cmds.push(name.to_string());
+                }
+            }
+        }
+    }
+    cmds
 }
 
 fn open_redirect_file(path: &Path, append: bool) -> File {
