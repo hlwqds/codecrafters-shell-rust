@@ -86,7 +86,11 @@ impl Completer for ShellHelper {
                 .into_iter()
                 .map(|file| Pair {
                     display: file.clone(),
-                    replacement: format!("{} ", file),
+                    replacement: if file.ends_with("/") {
+                        file.clone()
+                    } else {
+                        format!("{} ", file)
+                    },
                 })
                 .collect();
             res.extend(matches);
@@ -152,10 +156,13 @@ fn find_prefix_file_in_dir(prefix: &str, dir: &Path, executable: bool) -> Vec<St
     let mut cmds = vec![];
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
+            let mut name = entry.file_name().to_string_lossy().to_string();
             let full_path = dir.join(&name);
             if executable && !is_executable(&full_path) {
                 continue;
+            }
+            if full_path.is_dir() {
+                name.push('/');
             }
             if name.starts_with(prefix) {
                 cmds.push(name);
