@@ -7,6 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::process::{self, Command};
+use std::sync::Mutex;
 use std::{collections::HashMap, env};
 
 use once_cell::sync::Lazy;
@@ -210,11 +211,30 @@ fn handle_type(target: &str, path: &str, redirect: &Redirect) {
 }
 
 fn handle_complete(args: &[String], redirect: &Redirect) {
-    if args.len() != 2 {
+    if args.len() < 2 {
         write_error("not enought args", redirect);
     }
-    let s = format!("complete: {}: no completion specification", args[1]);
-    write_error(&s, redirect);
+    if args[0] == "-p" {
+        if args.len() != 2 {
+            write_error("not enought args", redirect);
+        }
+        if let Some(p) = COMPLETIONS.lock().unwrap().get(args[1].as_str()) {
+            let s = format!("complete -C '{}' {}", p, args[1]);
+            write_output(&s, redirect)
+        } else {
+            let s = format!("complete: {}: no completion specification", args[1]);
+            write_error(&s, redirect)
+        }
+    } else if args[0] == "-C" {
+        if args.len() != 3 {
+            write_error("not enought args", redirect);
+        }
+
+        COMPLETIONS
+            .lock()
+            .unwrap()
+            .insert(args[2].clone(), args[1].clone());
+    }
 }
 
 fn handle_cd(args: &[String], redirect: &Redirect) {
@@ -442,6 +462,9 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
         ("complete", true),
     ])
 });
+
+static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> =
+    Lazy::new(|| Mutex::new(HashMap::from([])));
 
 fn main() {
     let path = env::var("PATH").unwrap_or_default();
