@@ -82,7 +82,9 @@ impl Completer for ShellHelper {
                 .collect();
             res.extend(matches);
         } else {
-            let matches: Vec<Pair> = find_prefix_file_in_cwd(current)
+            let mut files = find_prefix_file_in_cwd(current);
+            files.sort();
+            let matches: Vec<Pair> = files
                 .into_iter()
                 .map(|file| Pair {
                     display: file.clone(),
