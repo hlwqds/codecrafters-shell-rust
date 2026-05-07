@@ -428,6 +428,7 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
         ("type", true),
         ("pwd", true),
         ("cd", true),
+        ("complete", true),
     ])
 });
 
