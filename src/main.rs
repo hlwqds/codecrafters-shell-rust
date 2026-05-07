@@ -42,34 +42,57 @@ impl Completer for ShellHelper {
         pos: usize,
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
-        let prefix = &line[..pos];
+        let before_cursor = &line[..pos];
 
-        let parts = prefix.split_whitespace().collect();
+        let mut res: Vec<Pair> = vec![];
 
-        let arg_index = if prefix.ends_with(' ') || prefix.ends_with('\t') {
-            parts.len()
+        let parts: Vec<&str> = before_cursor.split_whitespace().collect();
+
+        let current = if before_cursor.ends_with(' ') || before_cursor.ends_with('\t') {
+            ""
         } else {
-            parts.len().saturating_sub;
+            parts.last().copied().unwrap_or("")
         };
 
-        let path = env::var("PATH").unwrap_or_default();
+        let arg_index = if before_cursor.ends_with(' ') || before_cursor.ends_with('\t') {
+            parts.len()
+        } else {
+            parts.len().saturating_sub(1)
+        };
 
-        let mut cmds: Vec<String> = BUILTINS
-            .keys()
-            .filter(|cmd| cmd.starts_with(prefix))
-            .map(|cmd| cmd.to_string())
-            .collect();
-        cmds.extend(find_prefix_in_path(prefix, &path));
-        cmds.sort();
-        cmds.dedup();
-        let matches = cmds
-            .into_iter()
-            .map(|cmd| Pair {
-                display: cmd.clone(),
-                replacement: format!("{} ", cmd),
-            })
-            .collect();
-        Ok((0, matches))
+        let start = pos - current.len();
+
+        if arg_index == 0 {
+            let path = env::var("PATH").unwrap_or_default();
+
+            let mut cmds: Vec<String> = BUILTINS
+                .keys()
+                .filter(|cmd| cmd.starts_with(current))
+                .map(|cmd| cmd.to_string())
+                .collect();
+            cmds.extend(find_prefix_file_in_path(current, &path, true));
+            cmds.sort();
+            cmds.dedup();
+            let matches: Vec<Pair> = cmds
+                .into_iter()
+                .map(|cmd| Pair {
+                    display: cmd.clone(),
+                    replacement: format!("{} ", cmd),
+                })
+                .collect();
+            res.extend(matches);
+        } else {
+            let matches: Vec<Pair> = find_prefix_file_in_cwd(current)
+                .into_iter()
+                .map(|file| Pair {
+                    display: file.clone(),
+                    replacement: format!("{} ", file),
+                })
+                .collect();
+            res.extend(matches);
+        }
+
+        Ok((start, res))
     }
 }
 
@@ -99,14 +122,22 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
     None
 }
 
-fn find_prefix_in_path(prefix: &str, path: &str) -> Vec<String> {
+fn find_prefix_file_in_cwd(prefix: &str) -> Vec<String> {
+    return find_prefix_file_in_path(prefix, ".", false);
+}
+
+fn find_prefix_file_in_path(prefix: &str, path: &str, executable: bool) -> Vec<String> {
     let mut cmds = vec![];
     for dir in env::split_paths(path) {
-        if let Ok(entries) = fs::read_dir(dir) {
+        if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
+                let full_path = dir.join(&name);
+                if executable && !is_executable(&full_path) {
+                    continue;
+                }
                 if name.starts_with(prefix) {
-                    cmds.push(name.to_string());
+                    cmds.push(name);
                 }
             }
         }
