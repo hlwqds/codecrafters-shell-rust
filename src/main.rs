@@ -70,7 +70,7 @@ impl Completer for ShellHelper {
                 .filter(|cmd| cmd.starts_with(current))
                 .map(|cmd| cmd.to_string())
                 .collect();
-            cmds.extend(find_prefix_file_in_path(current, &path, true));
+            cmds.extend(find_prefix_executables_in_path(current, &path));
             cmds.sort();
             cmds.dedup();
             let matches: Vec<Pair> = cmds
@@ -123,24 +123,56 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
 }
 
 fn find_prefix_file_in_cwd(prefix: &str) -> Vec<String> {
-    return find_prefix_file_in_path(prefix, ".", false);
+    let path = Path::new(prefix);
+    let (dir, filename) = if prefix.ends_with('/') {
+        (path, "")
+    } else {
+        let dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        (dir, filename)
+    };
+    let files = find_prefix_file_in_dir(filename, dir, false);
+
+    files
+        .into_iter()
+        .map(|name| {
+            if dir == Path::new(".") {
+                name
+            } else {
+                dir.join(name).to_string_lossy().to_string()
+            }
+        })
+        .collect()
 }
 
-fn find_prefix_file_in_path(prefix: &str, path: &str, executable: bool) -> Vec<String> {
+fn find_prefix_file_in_dir(prefix: &str, dir: &Path, executable: bool) -> Vec<String> {
     let mut cmds = vec![];
-    for dir in env::split_paths(path) {
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let full_path = dir.join(&name);
-                if executable && !is_executable(&full_path) {
-                    continue;
-                }
-                if name.starts_with(prefix) {
-                    cmds.push(name);
-                }
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let full_path = dir.join(&name);
+            if executable && !is_executable(&full_path) {
+                continue;
+            }
+            if name.starts_with(prefix) {
+                cmds.push(name);
             }
         }
+    }
+    cmds
+}
+
+fn find_prefix_executables_in_path(prefix: &str, path: &str) -> Vec<String> {
+    let mut cmds = vec![];
+    for dir in env::split_paths(path) {
+        cmds.extend(find_prefix_file_in_dir(
+            prefix,
+            Path::new(dir.to_str().unwrap_or(".")),
+            true,
+        ));
     }
     cmds
 }
