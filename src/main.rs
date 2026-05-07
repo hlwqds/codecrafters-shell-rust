@@ -9,18 +9,18 @@ use std::process::Stdio;
 use std::process::{self, Command};
 use std::{collections::HashMap, env};
 
-use rustyline::Context;
+use once_cell::sync::Lazy;
 use rustyline::Editor;
 use rustyline::Helper;
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
+use rustyline::config::{BellStyle, CompletionType};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
-
-use once_cell::sync::Lazy;
+use rustyline::{Config, Context};
 struct ShellHelper;
 
 impl Helper for ShellHelper {}
@@ -50,23 +50,21 @@ impl Completer for ShellHelper {
 
         let path = env::var("PATH").unwrap_or_default();
 
-        let mut matches: Vec<Pair> = BUILTINS
+        let mut cmds: Vec<String> = BUILTINS
             .keys()
             .filter(|cmd| cmd.starts_with(prefix))
-            .map(|cmd| Pair {
-                display: cmd.to_string(),
-                replacement: format!("{} ", cmd),
-            })
+            .map(|cmd| cmd.to_string())
             .collect();
-
-        let matches2: Vec<Pair> = find_prefix_in_path(prefix, &path)
+        cmds.extend(find_prefix_in_path(prefix, &path));
+        cmds.sort();
+        cmds.dedup();
+        let matches = cmds
             .into_iter()
             .map(|cmd| Pair {
                 display: cmd.clone(),
                 replacement: format!("{} ", cmd),
             })
             .collect();
-        matches.extend(matches2);
         Ok((0, matches))
     }
 }
@@ -360,7 +358,11 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
 fn main() {
     let path = env::var("PATH").unwrap_or_default();
 
-    let mut rl: Editor<ShellHelper, DefaultHistory> = Editor::new().unwrap();
+    let config = Config::builder()
+        .bell_style(BellStyle::Audible)
+        .completion_type(CompletionType::List)
+        .build();
+    let mut rl: Editor<ShellHelper, DefaultHistory> = Editor::with_config(config).unwrap();
     rl.set_helper(Some(ShellHelper));
     loop {
         match rl.readline("$ ") {
