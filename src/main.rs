@@ -44,9 +44,13 @@ impl Completer for ShellHelper {
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
         let prefix = &line[..pos];
 
-        if prefix.contains(' ') || prefix.contains('\t') {
-            return Ok((0, vec![]));
-        }
+        let parts = prefix.split_whitespace().collect();
+
+        let arg_index = if prefix.ends_with(' ') || prefix.ends_with('\t') {
+            parts.len()
+        } else {
+            parts.len().saturating_sub;
+        };
 
         let path = env::var("PATH").unwrap_or_default();
 
