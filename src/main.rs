@@ -63,20 +63,25 @@ impl Completer for ShellHelper {
 
         let start = pos - current.len();
 
-        if arg_index == 1 && current == "" {
-            let mut subcmd = run_completion_script(parts[0]);
-            subcmd.sort();
-            let matches: Vec<Pair> = subcmd
+        // Try registered command completion
+        if arg_index > 0 && COMPLETIONS.lock().unwrap().contains_key(parts[0]) {
+            let prev_word = parts.get(arg_index - 1).copied().unwrap_or("");
+            let completions = run_completion_script(parts[0], current, prev_word);
+            let matches: Vec<Pair> = completions
                 .into_iter()
-                .map(|cmd| Pair {
-                    display: cmd.clone(),
-                    replacement: format!("{} ", cmd),
+                .filter(|c| c.starts_with(current))
+                .map(|c| Pair {
+                    display: c.clone(),
+                    replacement: format!("{} ", c),
                 })
                 .collect();
-            res.extend(matches);
+            if !matches.is_empty() {
+                return Ok((start, matches));
+            }
         }
-        if res.is_empty() {
-            if arg_index == 0 {
+
+        // Default completions
+        if arg_index == 0 {
                 let path = env::var("PATH").unwrap_or_default();
 
                 let mut cmds: Vec<String> = BUILTINS
@@ -111,7 +116,6 @@ impl Completer for ShellHelper {
                     .collect();
                 res.extend(matches);
             }
-        }
 
         Ok((start, res))
     }
@@ -143,10 +147,11 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
     None
 }
 
-fn run_completion_script(script: &str) -> Vec<String> {
-    let Some(path) = COMPLETIONS.lock().unwrap().get(script).cloned() else {
+fn run_completion_script(cmd_name: &str, current_word: &str, prev_word: &str) -> Vec<String> {
+    let Some(path) = COMPLETIONS.lock().unwrap().get(cmd_name).cloned() else {
         return vec![];
     };
+
     let path = Path::new(&path);
     let dir = path
         .parent()
@@ -161,7 +166,13 @@ fn run_completion_script(script: &str) -> Vec<String> {
     let Some(full_path) = find_in_path(filename, dir) else {
         return vec![];
     };
-    let output = Command::new(full_path).arg0(script).output();
+    let output = Command::new(full_path)
+        .arg0(cmd_name)
+        .arg(cmd_name)
+        .arg(current_word)
+        .arg(prev_word)
+        .output();
+
     let Ok(output) = output else {
         return vec![];
     };
