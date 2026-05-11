@@ -66,7 +66,7 @@ impl Completer for ShellHelper {
         // Try registered command completion
         if arg_index > 0 && COMPLETIONS.lock().unwrap().contains_key(parts[0]) {
             let prev_word = parts.get(arg_index - 1).copied().unwrap_or("");
-            let completions = run_completion_script(parts[0], current, prev_word);
+            let completions = run_completion_script(parts[0], current, prev_word, before_cursor);
             let matches: Vec<Pair> = completions
                 .into_iter()
                 .filter(|c| c.starts_with(current))
@@ -82,40 +82,40 @@ impl Completer for ShellHelper {
 
         // Default completions
         if arg_index == 0 {
-                let path = env::var("PATH").unwrap_or_default();
+            let path = env::var("PATH").unwrap_or_default();
 
-                let mut cmds: Vec<String> = BUILTINS
-                    .keys()
-                    .filter(|cmd| cmd.starts_with(current))
-                    .map(|cmd| cmd.to_string())
-                    .collect();
-                cmds.extend(find_prefix_executables_in_path(current, &path));
-                cmds.sort();
-                cmds.dedup();
-                let matches: Vec<Pair> = cmds
-                    .into_iter()
-                    .map(|cmd| Pair {
-                        display: cmd.clone(),
-                        replacement: format!("{} ", cmd),
-                    })
-                    .collect();
-                res.extend(matches);
-            } else {
-                let mut files = find_prefix_file_in_cwd(current);
-                files.sort();
-                let matches: Vec<Pair> = files
-                    .into_iter()
-                    .map(|file| Pair {
-                        display: file.clone(),
-                        replacement: if file.ends_with("/") {
-                            file.clone()
-                        } else {
-                            format!("{} ", file)
-                        },
-                    })
-                    .collect();
-                res.extend(matches);
-            }
+            let mut cmds: Vec<String> = BUILTINS
+                .keys()
+                .filter(|cmd| cmd.starts_with(current))
+                .map(|cmd| cmd.to_string())
+                .collect();
+            cmds.extend(find_prefix_executables_in_path(current, &path));
+            cmds.sort();
+            cmds.dedup();
+            let matches: Vec<Pair> = cmds
+                .into_iter()
+                .map(|cmd| Pair {
+                    display: cmd.clone(),
+                    replacement: format!("{} ", cmd),
+                })
+                .collect();
+            res.extend(matches);
+        } else {
+            let mut files = find_prefix_file_in_cwd(current);
+            files.sort();
+            let matches: Vec<Pair> = files
+                .into_iter()
+                .map(|file| Pair {
+                    display: file.clone(),
+                    replacement: if file.ends_with("/") {
+                        file.clone()
+                    } else {
+                        format!("{} ", file)
+                    },
+                })
+                .collect();
+            res.extend(matches);
+        }
 
         Ok((start, res))
     }
@@ -147,7 +147,12 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
     None
 }
 
-fn run_completion_script(cmd_name: &str, current_word: &str, prev_word: &str) -> Vec<String> {
+fn run_completion_script(
+    cmd_name: &str,
+    current_word: &str,
+    prev_word: &str,
+    comp_line: &str,
+) -> Vec<String> {
     let Some(path) = COMPLETIONS.lock().unwrap().get(cmd_name).cloned() else {
         return vec![];
     };
@@ -171,6 +176,8 @@ fn run_completion_script(cmd_name: &str, current_word: &str, prev_word: &str) ->
         .arg(cmd_name)
         .arg(current_word)
         .arg(prev_word)
+        .env("COMP_LINE", comp_line)
+        .env("COMP_POINT", comp_line.len().to_string())
         .output();
 
     let Ok(output) = output else {
