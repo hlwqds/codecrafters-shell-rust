@@ -273,6 +273,7 @@ fn handle_type(target: &str, path: &str, redirect: &Redirect) {
 fn handle_complete(args: &[String], redirect: &Redirect) {
     if args.len() < 2 {
         write_error("not enought args", redirect);
+        return;
     }
     if args[0] == "-p" {
         if args.len() != 2 {
@@ -294,6 +295,11 @@ fn handle_complete(args: &[String], redirect: &Redirect) {
             .lock()
             .unwrap()
             .insert(args[2].clone(), args[1].clone());
+    } else if args[0] == "-r" {
+        if args.len() != 2 {
+            write_error("not enough args", redirect);
+        }
+        COMPLETIONS.lock().unwrap().remove(args[1].as_str());
     }
 }
 
