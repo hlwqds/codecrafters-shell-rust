@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::process::{self, Command};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::{collections::HashMap, env};
 
 use once_cell::sync::Lazy;
@@ -461,6 +461,13 @@ fn handle_command(args: &[String], path: &str) {
             let s = format!("{}", cwd.display());
             write_output(&s, &redirect);
         }
+
+        "jobs" => {
+            if args.len() != 1 {
+                write_error("jobs needs no arg", &redirect);
+                return;
+            }
+        }
         "cd" => {
             if args.len() > 2 {
                 write_error("cd needs less args", &redirect);
@@ -526,11 +533,70 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
         ("pwd", true),
         ("cd", true),
         ("complete", true),
+        ("jobs", true),
     ])
 });
 
 static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::from([])));
+
+struct ShellCommand {
+    args: Vec<String>,
+    path: String,
+    background: bool,
+}
+
+#[derive(Debug)]
+struct Job {
+    id: usize,
+    pid: u32,
+    command: String,
+    running: bool,
+}
+
+static JOBS: Lazy<Mutex<HashMap<usize, Job>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+static NEXT_JOB_ID: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(1));
+
+fn add_job(pid: u32, command: String) -> usize {
+    let mut jobs = JOBS.lock().unwrap();
+    let mut next_id = NEXT_JOB_ID.lock().unwrap();
+
+    let id = *next_id;
+    *next_id += 1;
+
+    jobs.insert(
+        id,
+        Job {
+            id,
+            pid,
+            command,
+            running: true,
+        },
+    );
+    id
+}
+
+impl ShellCommand {
+    fn new(args: Vec<String>, path: String) -> Self {
+        Self {
+            args,
+            path,
+            background: false,
+        }
+    }
+    fn run(&self) {
+        let pid = 1;
+        if self.background {
+            let _id = add_job(pid, self.args.join(" "));
+        } else {
+            handle_command(&self.args, &self.path);
+        }
+    }
+    fn set_background(&mut self) {
+        self.background = true
+    }
+}
 
 fn main() {
     let path = env::var("PATH").unwrap_or_default();
@@ -544,8 +610,17 @@ fn main() {
     loop {
         match rl.readline("$ ") {
             Ok(line) => {
-                let args = parse_args(&line);
-                handle_command(&args, &path);
+                let mut args = parse_args(&line);
+                let mut backgroud = false;
+                if args.len() >= 2 && args[args.len() - 1] == "&" {
+                    backgroud = true;
+                    args.pop();
+                }
+                let mut c = ShellCommand::new(args, path.clone());
+                if backgroud {
+                    c.set_background();
+                }
+                c.run();
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => {
                 process::exit(0);
