@@ -63,18 +63,10 @@ impl Completer for ShellHelper {
 
         let start = pos - current.len();
 
-        if arg_index == 0 {
-            let path = env::var("PATH").unwrap_or_default();
-
-            let mut cmds: Vec<String> = BUILTINS
-                .keys()
-                .filter(|cmd| cmd.starts_with(current))
-                .map(|cmd| cmd.to_string())
-                .collect();
-            cmds.extend(find_prefix_executables_in_path(current, &path));
-            cmds.sort();
-            cmds.dedup();
-            let matches: Vec<Pair> = cmds
+        if arg_index == 1 && current == "" {
+            let mut subcmd = run_completion_script(parts[0]);
+            subcmd.sort();
+            let matches: Vec<Pair> = subcmd
                 .into_iter()
                 .map(|cmd| Pair {
                     display: cmd.clone(),
@@ -82,21 +74,43 @@ impl Completer for ShellHelper {
                 })
                 .collect();
             res.extend(matches);
-        } else {
-            let mut files = find_prefix_file_in_cwd(current);
-            files.sort();
-            let matches: Vec<Pair> = files
-                .into_iter()
-                .map(|file| Pair {
-                    display: file.clone(),
-                    replacement: if file.ends_with("/") {
-                        file.clone()
-                    } else {
-                        format!("{} ", file)
-                    },
-                })
-                .collect();
-            res.extend(matches);
+        }
+        if res.is_empty() {
+            if arg_index == 0 {
+                let path = env::var("PATH").unwrap_or_default();
+
+                let mut cmds: Vec<String> = BUILTINS
+                    .keys()
+                    .filter(|cmd| cmd.starts_with(current))
+                    .map(|cmd| cmd.to_string())
+                    .collect();
+                cmds.extend(find_prefix_executables_in_path(current, &path));
+                cmds.sort();
+                cmds.dedup();
+                let matches: Vec<Pair> = cmds
+                    .into_iter()
+                    .map(|cmd| Pair {
+                        display: cmd.clone(),
+                        replacement: format!("{} ", cmd),
+                    })
+                    .collect();
+                res.extend(matches);
+            } else {
+                let mut files = find_prefix_file_in_cwd(current);
+                files.sort();
+                let matches: Vec<Pair> = files
+                    .into_iter()
+                    .map(|file| Pair {
+                        display: file.clone(),
+                        replacement: if file.ends_with("/") {
+                            file.clone()
+                        } else {
+                            format!("{} ", file)
+                        },
+                    })
+                    .collect();
+                res.extend(matches);
+            }
         }
 
         Ok((start, res))
@@ -127,6 +141,34 @@ fn find_in_path(cmd: &str, path: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn run_completion_script(script: &str) -> Vec<String> {
+    let Some(path) = COMPLETIONS.lock().unwrap().get(script).cloned() else {
+        return vec![];
+    };
+    let path = Path::new(&path);
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+    let Some(dir) = dir.to_str() else {
+        return vec![];
+    };
+
+    let Some(full_path) = find_in_path(filename, dir) else {
+        return vec![];
+    };
+    let output = Command::new(full_path).arg0(script).output();
+    let Ok(output) = output else {
+        return vec![];
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn find_prefix_file_in_cwd(prefix: &str) -> Vec<String> {
