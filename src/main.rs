@@ -469,10 +469,16 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
             let mut jobs = JOBS.lock().unwrap();
             let mut jobs_list: Vec<&Job> = jobs.values().collect();
             jobs_list.sort_by_key(|j| j.id);
-            let mut latest = "+";
+            let mut mark = "";
+            let mut num = 0;
             for job in jobs_list {
-                let status = if job.running { "Running" } else { "Done" };
-                let s = format!("[{}]{}  {:<24}{} &", job.id, latest, status, job.command);
+                if num == jobs_list.len() - 2 {
+                    mark = "-"
+                } else if num == jobs_list.len() - 1 {
+                    mark = "+"
+                }
+                num += 1;
+                let s = format!("[{}]{}  {:<24}{} &", job.id, mark, status, job.command);
                 latest = "";
                 write_output(&s, redirect);
             }
