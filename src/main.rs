@@ -557,14 +557,12 @@ struct Job {
 
 static JOBS: Lazy<Mutex<HashMap<usize, Job>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-static NEXT_JOB_ID: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(1));
-
 fn add_job(command: String) -> usize {
     let mut jobs = JOBS.lock().unwrap();
-    let mut next_id = NEXT_JOB_ID.lock().unwrap();
-
-    let id = *next_id;
-    *next_id += 1;
+    let mut id = 1;
+    while jobs.contains_key(&id) {
+        id += 1
+    }
 
     jobs.insert(
         id,
