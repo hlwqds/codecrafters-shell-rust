@@ -471,15 +471,16 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
             jobs_list.sort_by_key(|j| j.id);
             let mut mark = "";
             let mut num = 0;
+            let job_len = jobs_list.len();
             for job in jobs_list {
-                if num == jobs_list.len() - 2 {
+                if num == job_len - 2 {
                     mark = "-"
-                } else if num == jobs_list.len() - 1 {
+                } else if num == job_len - 1 {
                     mark = "+"
                 }
                 num += 1;
+                let status = if job.running { "Running" } else { "Done" };
                 let s = format!("[{}]{}  {:<24}{} &", job.id, mark, status, job.command);
-                latest = "";
                 write_output(&s, redirect);
             }
         }
