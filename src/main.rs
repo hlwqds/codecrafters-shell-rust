@@ -467,7 +467,7 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
                 return;
             }
             let mut jobs = JOBS.lock().unwrap();
-            let mut jobs_list: Vec<&Job> = jobs.values().collect();
+            let mut jobs_list: Vec<&mut Job> = jobs.values_mut().collect();
             jobs_list.sort_by_key(|j| j.id);
             let mut mark = "";
             let mut num = 0;
@@ -479,10 +479,25 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
                     mark = "+"
                 }
                 num += 1;
-                let status = if job.running { "Running" } else { "Done" };
-                let s = format!("[{}]{}  {:<24}{} &", job.id, mark, status, job.command);
+                let mut status = "Running";
+                if !job.running {
+                    status = "Done";
+                } else {
+                    let c_status =
+                        unsafe { libc::waitpid(job.pid, std::ptr::null_mut(), libc::WNOHANG) };
+                    if c_status > 0 {
+                        job.running = false;
+                        status = "Done";
+                    }
+                }
+                let background = if job.running { "&" } else { "" };
+                let s = format!(
+                    "[{}]{}  {:<24}{} {}",
+                    job.id, mark, status, job.command, background
+                );
                 write_output(&s, redirect);
             }
+            jobs.retain(|_id, job| job.running);
         }
         "cd" => {
             if args.len() > 2 {
@@ -635,6 +650,7 @@ impl<'a> ShellCommand<'a> {
                         let s = format!("{}: command not found", cmd);
                         let _ = writeln!(std::io::stderr(), "{}", s);
                     }
+                    make_job_complete(id);
                     exit(0);
                 }
             }
