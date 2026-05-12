@@ -466,39 +466,7 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
                 write_error("jobs needs no arg", redirect);
                 return;
             }
-            let mut jobs = JOBS.lock().unwrap();
-            let mut jobs_list: Vec<&mut Job> = jobs.values_mut().collect();
-            jobs_list.sort_by_key(|j| j.id);
-            let mut mark = " ";
-            let mut num = 0;
-            let job_len = jobs_list.len();
-            for job in jobs_list {
-                if num == job_len - 2 {
-                    mark = "-"
-                } else if num == job_len - 1 {
-                    mark = "+"
-                }
-                num += 1;
-                let mut status = "Running";
-                if !job.running {
-                    status = "Done";
-                } else {
-                    let c_status =
-                        unsafe { libc::waitpid(job.pid, std::ptr::null_mut(), libc::WNOHANG) };
-                    if c_status > 0 {
-                        job.running = false;
-                        status = "Done";
-                    }
-                }
-
-                let background = if job.running { "&" } else { "" };
-                let s = format!(
-                    "[{}]{}  {:<24}{} {}",
-                    job.id, mark, status, job.command, background
-                );
-                write_output(&s, redirect);
-            }
-            jobs.retain(|_id, job| job.running);
+            reap_children(false, redirect);
         }
         "cd" => {
             if args.len() > 2 {
@@ -622,6 +590,48 @@ fn make_job_complete(id: usize) {
     job.running = false;
 }
 
+fn reap_children(reap_one: bool, redirect: &Redirect) {
+    let mut jobs = JOBS.lock().unwrap();
+    let mut jobs_list: Vec<&mut Job> = jobs.values_mut().collect();
+    jobs_list.sort_by_key(|j| j.id);
+    let mut mark = " ";
+    let mut num = 0;
+    let job_len = jobs_list.len();
+    let mut reap_done = false;
+    for job in jobs_list {
+        if num == job_len - 2 {
+            mark = "-"
+        } else if num == job_len - 1 {
+            mark = "+"
+        }
+        num += 1;
+        let mut status = "Running";
+        if !job.running {
+            status = "Done";
+        } else {
+            let c_status = unsafe { libc::waitpid(job.pid, std::ptr::null_mut(), libc::WNOHANG) };
+            if c_status > 0 {
+                job.running = false;
+                status = "Done";
+                reap_done = true;
+            }
+        }
+
+        let background = if job.running { "&" } else { "" };
+        if !reap_one || (reap_one && reap_done) {
+            let s = format!(
+                "[{}]{}  {:<24}{} {}",
+                job.id, mark, status, job.command, background
+            );
+            write_output(&s, redirect);
+            if reap_one {
+                break;
+            }
+        }
+    }
+    jobs.retain(|_id, job| job.running);
+}
+
 impl<'a> ShellCommand<'a> {
     fn new(args: Vec<String>, path: String, redirect: &'a Redirect) -> Self {
         Self {
@@ -665,6 +675,7 @@ impl<'a> ShellCommand<'a> {
         } else {
             handle_command(&self.args, &self.path, self.redirect);
         }
+        reap_children(true, self.redirect);
     }
     fn set_background(&mut self) {
         self.background = true
