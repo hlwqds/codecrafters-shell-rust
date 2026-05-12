@@ -469,7 +469,7 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
             let mut jobs = JOBS.lock().unwrap();
             let mut jobs_list: Vec<&mut Job> = jobs.values_mut().collect();
             jobs_list.sort_by_key(|j| j.id);
-            let mut mark = "";
+            let mut mark = " ";
             let mut num = 0;
             let job_len = jobs_list.len();
             for job in jobs_list {
@@ -490,6 +490,7 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
                         status = "Done";
                     }
                 }
+
                 let background = if job.running { "&" } else { "" };
                 let s = format!(
                     "[{}]{}  {:<24}{} {}",
@@ -650,8 +651,9 @@ impl<'a> ShellCommand<'a> {
                         let s = format!("{}: command not found", cmd);
                         let _ = writeln!(std::io::stderr(), "{}", s);
                     }
-                    make_job_complete(id);
                     exit(0);
+                } else {
+                    fill_job_pid(id, pid);
                 }
             }
             if pid < 0 {
