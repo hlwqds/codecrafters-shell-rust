@@ -1,7 +1,9 @@
+use libc::{exit, fork};
 #[allow(unused_imports)]
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::os::raw::c_int;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -357,7 +359,7 @@ fn execute_external(target: &str, args: &[String], path: &str, redirect: &Redire
     }
 }
 
-fn split_redirect(args: &[String]) -> (Vec<String>, Redirect) {
+fn split_redirect(args: Vec<String>) -> (Vec<String>, Redirect) {
     let mut cmd_args = Vec::new();
     let mut redirect = Redirect {
         stdout: None,
@@ -427,13 +429,10 @@ fn prepare_redirect(redirect: &Redirect) {
     }
 }
 
-fn handle_command(args: &[String], path: &str) {
+fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
     if args.is_empty() {
         return;
     }
-
-    let (args, redirect) = split_redirect(args);
-    prepare_redirect(&redirect);
 
     if args.is_empty() {
         return;
@@ -443,42 +442,42 @@ fn handle_command(args: &[String], path: &str) {
     match cmd {
         "exit" => process::exit(0),
         "echo" => {
-            write_output(args[1..].join(" ").as_str(), &redirect);
+            write_output(args[1..].join(" ").as_str(), redirect);
         }
         "type" => {
             if args.len() != 2 {
-                write_error("type needs one arg", &redirect);
+                write_error("type needs one arg", redirect);
                 return;
             }
-            handle_type(args[1].as_str(), path, &redirect);
+            handle_type(args[1].as_str(), path, redirect);
         }
         "pwd" => {
             if args.len() != 1 {
-                write_error("pwd needs no arg", &redirect);
+                write_error("pwd needs no arg", redirect);
                 return;
             }
             let cwd = std::env::current_dir().unwrap_or_default();
             let s = format!("{}", cwd.display());
-            write_output(&s, &redirect);
+            write_output(&s, redirect);
         }
 
         "jobs" => {
             if args.len() != 1 {
-                write_error("jobs needs no arg", &redirect);
+                write_error("jobs needs no arg", redirect);
                 return;
             }
         }
         "cd" => {
             if args.len() > 2 {
-                write_error("cd needs less args", &redirect);
+                write_error("cd needs less args", redirect);
                 return;
             }
-            handle_cd(&args[1..], &redirect);
+            handle_cd(&args[1..], redirect);
         }
         "complete" => {
-            handle_complete(&args[1..], &redirect);
+            handle_complete(&args[1..], redirect);
         }
-        _ => execute_external(cmd, &args[1..], path, &redirect),
+        _ => execute_external(cmd, &args[1..], path, redirect),
     }
 }
 
@@ -540,16 +539,17 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
 static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::from([])));
 
-struct ShellCommand {
+struct ShellCommand<'a> {
     args: Vec<String>,
     path: String,
+    redirect: &'a Redirect,
     background: bool,
 }
 
 #[derive(Debug)]
 struct Job {
     id: usize,
-    pid: u32,
+    pid: c_int,
     command: String,
     running: bool,
 }
@@ -558,7 +558,7 @@ static JOBS: Lazy<Mutex<HashMap<usize, Job>>> = Lazy::new(|| Mutex::new(HashMap:
 
 static NEXT_JOB_ID: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(1));
 
-fn add_job(pid: u32, command: String) -> usize {
+fn add_job(command: String) -> usize {
     let mut jobs = JOBS.lock().unwrap();
     let mut next_id = NEXT_JOB_ID.lock().unwrap();
 
@@ -569,7 +569,7 @@ fn add_job(pid: u32, command: String) -> usize {
         id,
         Job {
             id,
-            pid,
+            pid: 0,
             command,
             running: true,
         },
@@ -577,20 +577,58 @@ fn add_job(pid: u32, command: String) -> usize {
     id
 }
 
-impl ShellCommand {
-    fn new(args: Vec<String>, path: String) -> Self {
+fn fill_job_pid(id: usize, pid: c_int) {
+    let mut jobs = JOBS.lock().unwrap();
+    let job = jobs.get_mut(&id).unwrap();
+    job.pid = pid;
+}
+
+fn make_job_complete(id: usize) {
+    let mut jobs = JOBS.lock().unwrap();
+    let job = jobs.get_mut(&id).unwrap();
+    job.running = false;
+}
+
+impl<'a> ShellCommand<'a> {
+    fn new(args: Vec<String>, path: String, redirect: &'a Redirect) -> Self {
         Self {
             args,
             path,
+            redirect,
             background: false,
         }
     }
     fn run(&self) {
-        let pid = 1;
         if self.background {
-            let _id = add_job(pid, self.args.join(" "));
+            let id = add_job(self.args.join(" "));
+            let pid: c_int;
+            unsafe {
+                pid = fork();
+                if pid == 0 {
+                    let cmd = self.args.first().map(|s| s.as_str()).unwrap_or("");
+                    if BUILTINS.contains_key(cmd) {
+                        handle_command(&self.args, &self.path, self.redirect);
+                    } else if let Some(full_path) = find_in_path(cmd, &self.path) {
+                        let mut command = Command::new(full_path);
+                        command.arg0(cmd).args(&self.args[1..]);
+                        apply_redirect(&mut command, self.redirect);
+                        let _ = command.exec();
+                        exit(1);
+                    } else {
+                        let s = format!("{}: command not found", cmd);
+                        let _ = writeln!(std::io::stderr(), "{}", s);
+                    }
+                    exit(0);
+                }
+            }
+            if pid < 0 {
+                make_job_complete(id);
+            } else {
+                let s = format!("[{}] {}", id, pid);
+                write_output(&s, self.redirect);
+            }
         } else {
-            handle_command(&self.args, &self.path);
+            handle_command(&self.args, &self.path, self.redirect);
         }
     }
     fn set_background(&mut self) {
@@ -610,13 +648,16 @@ fn main() {
     loop {
         match rl.readline("$ ") {
             Ok(line) => {
-                let mut args = parse_args(&line);
+                let args = parse_args(&line);
+
+                let (mut args, redirect) = split_redirect(args);
+                prepare_redirect(&redirect);
                 let mut backgroud = false;
                 if args.len() >= 2 && args[args.len() - 1] == "&" {
                     backgroud = true;
                     args.pop();
                 }
-                let mut c = ShellCommand::new(args, path.clone());
+                let mut c = ShellCommand::new(args, path.clone(), &redirect);
                 if backgroud {
                     c.set_background();
                 }
