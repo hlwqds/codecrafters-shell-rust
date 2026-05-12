@@ -466,6 +466,16 @@ fn handle_command(args: &[String], path: &str, redirect: &Redirect) {
                 write_error("jobs needs no arg", redirect);
                 return;
             }
+            let mut jobs = JOBS.lock().unwrap();
+            let mut jobs_list: Vec<&Job> = jobs.values().collect();
+            jobs_list.sort_by_key(|j| j.id);
+            let mut latest = "+";
+            for job in jobs_list {
+                let status = if job.running { "Running" } else { "Done" };
+                let s = format!("[{}]{}  {:<24}{} &", job.id, latest, status, job.command);
+                latest = "";
+                write_output(&s, redirect);
+            }
         }
         "cd" => {
             if args.len() > 2 {
