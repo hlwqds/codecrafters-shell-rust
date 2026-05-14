@@ -61,6 +61,7 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
         ("cd", true),
         ("complete", true),
         ("jobs", true),
+        ("history", true),
     ])
 });
 
@@ -487,7 +488,11 @@ fn reap_children() {
         let Some(id) = found_id else { continue };
 
         let max_id = jobs.values().filter(|j| j.running).map(|j| j.id).max();
-        let mark = if max_id.is_none() || id >= max_id.unwrap() { "+" } else { "-" };
+        let mark = if max_id.is_none() || id >= max_id.unwrap() {
+            "+"
+        } else {
+            "-"
+        };
 
         let cmd = jobs.get(&id).unwrap().command.clone();
         println!("[{}]{}  {:<24}{}", id, mark, "Done", cmd);
