@@ -69,6 +69,9 @@ static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::n
 
 static JOBS: Lazy<Mutex<HashMap<usize, Job>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
+static HISTORY: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static LAST_SYNCED: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+
 // ─── Parsing ────────────────────────────────────────────────────────
 
 /// Split input by `|` respecting quotes and backslash escapes.
@@ -410,11 +413,23 @@ fn handle_history(args: &[String], redirect: &Redirect) {
     }
     if args[0] == "-w" {
         let path = Path::new(&args[1]);
-        let mut file = open_file_for_write(path, true);
+        let mut file = open_file_for_write(path, false);
         let history_list = HISTORY.lock().unwrap();
         for history in history_list.iter() {
             writeln!(file, "{}", history).unwrap();
         }
+        return;
+    }
+    if args[0] == "-a" {
+        let path = Path::new(&args[1]);
+        let mut file = open_file_for_write(path, true);
+        let history_list = HISTORY.lock().unwrap();
+        let start = *LAST_SYNCED.lock().unwrap();
+        for history in history_list[start..].iter() {
+            writeln!(file, "{}", history).unwrap();
+        }
+        *LAST_SYNCED.lock().unwrap() = history_list.len();
+        return;
     }
 }
 
@@ -756,8 +771,6 @@ fn exec_segment_in_child(args: Vec<String>, path: &str, redirect: &Redirect) {
         }
     }
 }
-
-static HISTORY: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 fn add_to_history(line: String) {
     HISTORY.lock().unwrap().push(line);
