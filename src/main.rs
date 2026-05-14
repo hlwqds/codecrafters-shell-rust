@@ -456,6 +456,7 @@ fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
         "cd" => handle_cd(&args[1..]),
         "jobs" => handle_jobs(redirect),
         "complete" => handle_complete(&args[1..], redirect),
+        "history" => list_history(redirect),
         _ => execute_external(cmd, &args[1..], path, redirect),
     }
 }
@@ -718,6 +719,20 @@ fn exec_segment_in_child(args: Vec<String>, path: &str, redirect: &Redirect) {
     }
 }
 
+static HISTORY: Lazy<Mutex<Vec<String>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+fn add_to_history(line: String) {
+    HISTORY.lock().unwrap().push(line);
+}
+
+fn list_history(redirect: &Redirect) {
+    let history_list = HISTORY.lock().unwrap();
+    for (i, history) in history_list.iter().enumerate() {
+        let s = format!("{:>4}  {}", i + 1, history);
+        write_output(&s, redirect);
+    }
+}
+
 // ─── Main Loop ──────────────────────────────────────────────────────
 
 fn main() {
@@ -733,6 +748,7 @@ fn main() {
         reap_children();
         match rl.readline("$ ") {
             Ok(line) => {
+                add_to_history(line.clone());
                 let segments = parse_pipeline(&line);
                 if segments.is_empty() {
                     continue;
