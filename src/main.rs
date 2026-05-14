@@ -380,6 +380,19 @@ fn handle_cd(args: &[String]) {
     }
 }
 
+fn handle_history(args: &[String], redirect: &Redirect) {
+    if args.len() != 0 && args.len() != 1 {
+        write_error("arg num not invalid", redirect);
+        return;
+    }
+    if args.len() == 0 {
+        list_history(-1, redirect);
+    } else {
+        let n: i32 = args[0].parse().unwrap();
+        list_history(n, redirect);
+    }
+}
+
 fn handle_jobs(redirect: &Redirect) {
     let mut jobs = JOBS.lock().unwrap();
 
@@ -456,7 +469,7 @@ fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
         "cd" => handle_cd(&args[1..]),
         "jobs" => handle_jobs(redirect),
         "complete" => handle_complete(&args[1..], redirect),
-        "history" => list_history(redirect),
+        "history" => handle_history(&args[1..], redirect),
         _ => execute_external(cmd, &args[1..], path, redirect),
     }
 }
@@ -725,11 +738,20 @@ fn add_to_history(line: String) {
     HISTORY.lock().unwrap().push(line);
 }
 
-fn list_history(redirect: &Redirect) {
+fn list_history(recent_num: i32, redirect: &Redirect) {
     let history_list = HISTORY.lock().unwrap();
-    for (i, history) in history_list.iter().enumerate() {
-        let s = format!("{:>4}  {}", i + 1, history);
-        write_output(&s, redirect);
+    if recent_num < 0 {
+        for (i, history) in history_list.iter().enumerate() {
+            let s = format!("{:>4}  {}", i + 1, history);
+            write_output(&s, redirect);
+        }
+    } else {
+        let len = history_list.len();
+        let tail_len: usize = len.min(recent_num as usize);
+        for i in len - tail_len..len {
+            let s = format!("{:>4}  {}", i + 1, history_list[i]);
+            write_output(&s, redirect)
+        }
     }
 }
 
