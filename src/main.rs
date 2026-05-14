@@ -770,6 +770,7 @@ fn main() {
         reap_children();
         match rl.readline("$ ") {
             Ok(line) => {
+                rl.add_history_entry(line.as_str());
                 add_to_history(line.clone());
                 let segments = parse_pipeline(&line);
                 if segments.is_empty() {
