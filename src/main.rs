@@ -175,7 +175,7 @@ fn split_redirect(args: Vec<String>) -> (Vec<String>, Redirect) {
 
 // ─── I/O ────────────────────────────────────────────────────────────
 
-fn open_redirect_file(path: &Path, append: bool) -> File {
+fn open_file_for_write(path: &Path, append: bool) -> File {
     OpenOptions::new()
         .create(true)
         .write(true)
@@ -188,7 +188,7 @@ fn open_redirect_file(path: &Path, append: bool) -> File {
 fn write_output(text: &str, redirect: &Redirect) {
     let msg = format!("{}\n", text);
     if let Some(ref path) = redirect.stdout {
-        open_redirect_file(path, redirect.stdout_append)
+        open_file_for_write(path, redirect.stdout_append)
             .write_all(msg.as_bytes())
             .unwrap();
     } else if let Some(fd) = redirect.pipe_write_fd {
@@ -203,7 +203,12 @@ fn write_output(text: &str, redirect: &Redirect) {
 
 fn write_error(text: &str, redirect: &Redirect) {
     if let Some(ref path) = redirect.stderr {
-        writeln!(open_redirect_file(path, redirect.stderr_append), "{}", text).unwrap();
+        writeln!(
+            open_file_for_write(path, redirect.stderr_append),
+            "{}",
+            text
+        )
+        .unwrap();
     } else {
         let _ = writeln!(std::io::stderr(), "{}", text);
     }
@@ -216,7 +221,7 @@ fn apply_redirect(command: &mut Command, redirect: &Redirect) {
         }
     }
     if let Some(ref path) = redirect.stdout {
-        command.stdout(Stdio::from(open_redirect_file(
+        command.stdout(Stdio::from(open_file_for_write(
             path,
             redirect.stdout_append,
         )));
@@ -226,7 +231,7 @@ fn apply_redirect(command: &mut Command, redirect: &Redirect) {
         }
     }
     if let Some(ref path) = redirect.stderr {
-        command.stderr(Stdio::from(open_redirect_file(
+        command.stderr(Stdio::from(open_file_for_write(
             path,
             redirect.stderr_append,
         )));
@@ -401,6 +406,15 @@ fn handle_history(args: &[String], redirect: &Redirect) {
             let line = line.unwrap();
             add_to_history(line);
         }
+        return;
+    }
+    if args[0] == "-w" {
+        let path = Path::new(&args[1]);
+        let mut file = open_file_for_write(path, true);
+        let history_list = HISTORY.lock().unwrap();
+        for history in history_list.iter() {
+            writeln!(file, "{}", history).unwrap();
+        }
     }
 }
 
@@ -451,10 +465,10 @@ fn handle_jobs(redirect: &Redirect) {
 /// Ensure redirect target files exist (bash creates them even if nothing is written).
 fn ensure_redirect_files(redirect: &Redirect) {
     if let Some(ref p) = redirect.stdout {
-        let _ = open_redirect_file(p, redirect.stdout_append);
+        let _ = open_file_for_write(p, redirect.stdout_append);
     }
     if let Some(ref p) = redirect.stderr {
-        let _ = open_redirect_file(p, redirect.stderr_append);
+        let _ = open_file_for_write(p, redirect.stderr_append);
     }
 }
 
@@ -781,7 +795,7 @@ fn main() {
         reap_children();
         match rl.readline("$ ") {
             Ok(line) => {
-                rl.add_history_entry(line.as_str());
+                rl.add_history_entry(line.as_str()).unwrap();
                 add_to_history(line.clone());
                 let segments = parse_pipeline(&line);
                 if segments.is_empty() {
