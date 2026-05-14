@@ -2,7 +2,7 @@
 
 use libc::{exit, fork};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::os::fd::FromRawFd;
 use std::os::raw::c_int;
 use std::os::unix::fs::PermissionsExt;
@@ -381,15 +381,26 @@ fn handle_cd(args: &[String]) {
 }
 
 fn handle_history(args: &[String], redirect: &Redirect) {
-    if args.len() != 0 && args.len() != 1 {
+    if args.len() > 2 {
         write_error("arg num not invalid", redirect);
         return;
     }
     if args.len() == 0 {
         list_history(-1, redirect);
-    } else {
+        return;
+    }
+    if args.len() == 1 {
         let n: i32 = args[0].parse().unwrap();
         list_history(n, redirect);
+        return;
+    }
+    if args[0] == "-r" {
+        let file = File::open(args[1].clone()).unwrap();
+        let reader = std::io::BufReader::new(file);
+        for line in reader.lines() {
+            let line = line.unwrap();
+            add_to_history(line);
+        }
     }
 }
 
