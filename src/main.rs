@@ -62,6 +62,7 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
         ("complete", true),
         ("jobs", true),
         ("history", true),
+        ("declare", true),
     ])
 });
 
