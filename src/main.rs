@@ -66,7 +66,7 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
     ])
 });
 
-static DECLARES: Lazy<HashMap<&str, i32>> = Lazy::new(|| HashMap::from([]));
+static DECLARES: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -405,10 +405,28 @@ fn read_history_from_file(path: &Path) {
 }
 
 fn handle_declare(args: &[String], redirect: &Redirect) {
-    if args.len() == 2 {
-        if args[0] == "-p" {
-            let s = format!("declare: {}: not found", args[1]);
-            write_error(&s, redirect);
+    if args.len() <= 2 {
+        if args.len() == 1 {
+            let kv: Vec<&str> = args[0].splitn(2, "=").collect();
+            if kv.len() != 2 {
+                return;
+            }
+            DECLARES
+                .lock()
+                .unwrap()
+                .insert(kv[0].to_string(), kv[1].to_string());
+            return;
+        }
+        if args.len() == 2 {
+            if args[0] == "-p" {
+                let declares = DECLARES.lock().unwrap();
+                if let Some(value) = declares.get(&args[1]) {
+                    write_output(&format!("declare -- {}=\"{}\"", args[1], value), redirect);
+                } else {
+                    write_error(&format!("declare: {}: not found", args[1]), redirect);
+                }
+            }
+            return;
         }
     }
 }
