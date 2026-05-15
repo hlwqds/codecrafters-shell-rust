@@ -580,10 +580,9 @@ fn trans_args(args: &[String]) -> Vec<String> {
                         }
                     };
                     if is_valid_name(&name) {
-                        result.push_str(declares.get(&name).map(|s| s.as_str()).unwrap_or(""));
-                    } else {
-                        result.push('$');
-                        result.push_str(&name);
+                        if let Some(name) = declares.get(&name) {
+                            result.push_str(name);
+                        }
                     }
                 } else {
                     result.push(c);
@@ -591,6 +590,7 @@ fn trans_args(args: &[String]) -> Vec<String> {
             }
             result
         })
+        .filter(|s| !s.is_empty())
         .collect()
 }
 
