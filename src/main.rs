@@ -388,6 +388,24 @@ fn handle_cd(args: &[String]) {
     }
 }
 
+fn write_history_to_file(path: &Path) {
+    let mut file = open_file_for_write(path, false);
+    let history_list = HISTORY.lock().unwrap();
+    for history in history_list.iter() {
+        writeln!(file, "{}", history).unwrap();
+    }
+    return;
+}
+
+fn read_history_from_file(path: &Path) {
+    if let Ok(file) = File::open(path) {
+        let reader = std::io::BufReader::new(file);
+        for line in reader.lines().flatten() {
+            add_to_history(line);
+        }
+    }
+}
+
 fn handle_history(args: &[String], redirect: &Redirect) {
     if args.len() > 2 {
         write_error("arg num not invalid", redirect);
@@ -398,27 +416,18 @@ fn handle_history(args: &[String], redirect: &Redirect) {
         return;
     }
     if args.len() == 1 {
-        let n: i32 = args[0].parse().unwrap();
-        list_history(n, redirect);
+        if let Ok(n) = args[0].parse::<i32>() {
+            list_history(n, redirect);
+        }
         return;
     }
     if args[0] == "-r" {
-        let file = File::open(args[1].clone()).unwrap();
-        let reader = std::io::BufReader::new(file);
-        for line in reader.lines() {
-            let line = line.unwrap();
-            add_to_history(line);
-        }
-        return;
+        let path = Path::new(&args[1]);
+        read_history_from_file(path);
     }
     if args[0] == "-w" {
         let path = Path::new(&args[1]);
-        let mut file = open_file_for_write(path, false);
-        let history_list = HISTORY.lock().unwrap();
-        for history in history_list.iter() {
-            writeln!(file, "{}", history).unwrap();
-        }
-        return;
+        write_history_to_file(path);
     }
     if args[0] == "-a" {
         let path = Path::new(&args[1]);
@@ -803,6 +812,10 @@ fn main() {
         .build();
     let mut rl: Editor<ShellHelper, DefaultHistory> = Editor::with_config(config).unwrap();
     rl.set_helper(Some(ShellHelper));
+
+    let histfile = env::var("HISTFILE").unwrap_or_default();
+    let histfile = Path::new(&histfile);
+    read_history_from_file(histfile);
 
     loop {
         reap_children();
