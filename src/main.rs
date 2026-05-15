@@ -66,6 +66,8 @@ static BUILTINS: Lazy<HashMap<&str, bool>> = Lazy::new(|| {
     ])
 });
 
+static DECLARES: Lazy<HashMap<&str, i32>> = Lazy::new(|| HashMap::from([]));
+
 static COMPLETIONS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 static JOBS: Lazy<Mutex<HashMap<usize, Job>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -402,6 +404,15 @@ fn read_history_from_file(path: &Path) {
     }
 }
 
+fn handle_declare(args: &[String], redirect: &Redirect) {
+    if args.len() == 2 {
+        if args[0] == "-p" {
+            let s = format!("declare: {}: not found", args[1]);
+            write_error(&s, redirect);
+        }
+    }
+}
+
 fn handle_history(args: &[String], redirect: &Redirect) {
     if args.len() > 2 {
         write_error("arg num not invalid", redirect);
@@ -521,6 +532,7 @@ fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
         "jobs" => handle_jobs(redirect),
         "complete" => handle_complete(&args[1..], redirect),
         "history" => handle_history(&args[1..], redirect),
+        "declare" => handle_declare(&args[1..], redirect),
         _ => execute_external(cmd, &args[1..], path, redirect),
     }
 }
