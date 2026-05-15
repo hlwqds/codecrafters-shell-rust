@@ -451,6 +451,10 @@ fn handle_declare(args: &[String], redirect: &Redirect) {
     }
 }
 
+fn handle_echo(args: &[String], redirect: &Redirect) {
+    write_output(&args.join(" "), redirect)
+}
+
 fn handle_history(args: &[String], redirect: &Redirect) {
     if args.len() > 2 {
         write_error("arg num not invalid", redirect);
@@ -542,12 +546,44 @@ fn ensure_redirect_files(redirect: &Redirect) {
     }
 }
 
+fn trans_args(args: &[String]) -> Vec<String> {
+    let declares = DECLARES.lock().unwrap();
+    args.iter()
+        .map(|arg| {
+            let mut result = String::new();
+            let mut chars = arg.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '$' {
+                    let mut name = String::new();
+                    while let Some(&nc) = chars.peek() {
+                        if nc.is_ascii_alphanumeric() || nc == '_' {
+                            name.push(chars.next().unwrap());
+                        } else {
+                            break;
+                        }
+                    }
+                    if is_valid_name(&name) {
+                        result.push_str(declares.get(&name).map(|s| s.as_str()).unwrap_or(""));
+                    } else {
+                        result.push('$');
+                        result.push_str(&name);
+                    }
+                } else {
+                    result.push(c);
+                }
+            }
+            result
+        })
+        .collect()
+}
+
 /// Central dispatch for all commands (builtins + external).
 fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
     if args.is_empty() {
         return;
     }
     ensure_redirect_files(redirect);
+    let args = trans_args(&args);
     let cmd = args[0].as_str();
     match cmd {
         "exit" => {
@@ -556,7 +592,7 @@ fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
             write_history_to_file(histfile);
             process::exit(0)
         }
-        "echo" => write_output(&args[1..].join(" "), redirect),
+        "echo" => handle_echo(&args[1..], redirect),
         "type" => {
             if let Some(target) = args.get(1) {
                 handle_type(target, path, redirect);
