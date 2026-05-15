@@ -554,14 +554,31 @@ fn trans_args(args: &[String]) -> Vec<String> {
             let mut chars = arg.chars().peekable();
             while let Some(c) = chars.next() {
                 if c == '$' {
-                    let mut name = String::new();
-                    while let Some(&nc) = chars.peek() {
-                        if nc.is_ascii_alphanumeric() || nc == '_' {
-                            name.push(chars.next().unwrap());
-                        } else {
-                            break;
+                    let name = match chars.peek() {
+                        Some('{') => {
+                            chars.next();
+                            let mut n = String::new();
+                            while let Some(&nc) = chars.peek() {
+                                if nc == '}' {
+                                    chars.next();
+                                    break;
+                                }
+                                n.push(chars.next().unwrap());
+                            }
+                            n
                         }
-                    }
+                        _ => {
+                            let mut n = String::new();
+                            while let Some(&nc) = chars.peek() {
+                                if nc.is_ascii_alphanumeric() || nc == '_' {
+                                    n.push(chars.next().unwrap());
+                                } else {
+                                    break;
+                                }
+                            }
+                            n
+                        }
+                    };
                     if is_valid_name(&name) {
                         result.push_str(declares.get(&name).map(|s| s.as_str()).unwrap_or(""));
                     } else {
