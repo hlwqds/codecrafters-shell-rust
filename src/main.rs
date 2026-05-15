@@ -404,6 +404,17 @@ fn read_history_from_file(path: &Path) {
     }
 }
 
+fn is_valid_name(name: &str) -> bool {
+    let first = match name.chars().next() {
+        Some(c) => c,
+        None => return false,
+    };
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn handle_declare(args: &[String], redirect: &Redirect) {
     if args.len() <= 2 {
         if args.len() == 1 {
@@ -411,6 +422,15 @@ fn handle_declare(args: &[String], redirect: &Redirect) {
             if kv.len() != 2 {
                 return;
             }
+
+            if !is_valid_name(kv[0]) {
+                write_error(
+                    &format!("declare: `{}': not a valid identifier", args[0]),
+                    redirect,
+                );
+                return;
+            }
+
             DECLARES
                 .lock()
                 .unwrap()
