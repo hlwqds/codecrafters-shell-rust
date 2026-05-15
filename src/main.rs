@@ -178,22 +178,22 @@ fn split_redirect(args: Vec<String>) -> (Vec<String>, Redirect) {
 
 // ─── I/O ────────────────────────────────────────────────────────────
 
-fn open_file_for_write(path: &Path, append: bool) -> File {
+fn open_file_for_write(path: &Path, append: bool) -> Option<File> {
     OpenOptions::new()
         .create(true)
         .write(true)
         .append(append)
         .truncate(!append)
         .open(path)
-        .unwrap()
+        .ok()
 }
 
 fn write_output(text: &str, redirect: &Redirect) {
     let msg = format!("{}\n", text);
     if let Some(ref path) = redirect.stdout {
-        open_file_for_write(path, redirect.stdout_append)
-            .write_all(msg.as_bytes())
-            .unwrap();
+        if let Some(mut file) = open_file_for_write(path, redirect.stdout_append) {
+            let _ = file.write_all(msg.as_bytes());
+        }
     } else if let Some(fd) = redirect.pipe_write_fd {
         unsafe {
             libc::write(fd, msg.as_ptr() as *const libc::c_void, msg.len());
@@ -206,12 +206,9 @@ fn write_output(text: &str, redirect: &Redirect) {
 
 fn write_error(text: &str, redirect: &Redirect) {
     if let Some(ref path) = redirect.stderr {
-        writeln!(
-            open_file_for_write(path, redirect.stderr_append),
-            "{}",
-            text
-        )
-        .unwrap();
+        if let Some(mut file) = open_file_for_write(path, redirect.stderr_append) {
+            let _ = writeln!(file, "{}", text);
+        }
     } else {
         let _ = writeln!(std::io::stderr(), "{}", text);
     }
@@ -224,20 +221,18 @@ fn apply_redirect(command: &mut Command, redirect: &Redirect) {
         }
     }
     if let Some(ref path) = redirect.stdout {
-        command.stdout(Stdio::from(open_file_for_write(
-            path,
-            redirect.stdout_append,
-        )));
+        if let Some(file) = open_file_for_write(path, redirect.stdout_append) {
+            command.stdout(Stdio::from(file));
+        }
     } else if let Some(fd) = redirect.pipe_write_fd {
         unsafe {
             command.stdout(Stdio::from_raw_fd(fd));
         }
     }
     if let Some(ref path) = redirect.stderr {
-        command.stderr(Stdio::from(open_file_for_write(
-            path,
-            redirect.stderr_append,
-        )));
+        if let Some(file) = open_file_for_write(path, redirect.stderr_append) {
+            command.stderr(Stdio::from(file));
+        }
     }
 }
 
@@ -389,12 +384,12 @@ fn handle_cd(args: &[String]) {
 }
 
 fn write_history_to_file(path: &Path) {
-    let mut file = open_file_for_write(path, false);
-    let history_list = HISTORY.lock().unwrap();
-    for history in history_list.iter() {
-        writeln!(file, "{}", history).unwrap();
+    if let Some(mut file) = open_file_for_write(path, false) {
+        let history_list = HISTORY.lock().unwrap();
+        for history in history_list.iter() {
+            let _ = writeln!(file, "{}", history);
+        }
     }
-    return;
 }
 
 fn read_history_from_file(path: &Path) {
@@ -431,13 +426,14 @@ fn handle_history(args: &[String], redirect: &Redirect) {
     }
     if args[0] == "-a" {
         let path = Path::new(&args[1]);
-        let mut file = open_file_for_write(path, true);
-        let history_list = HISTORY.lock().unwrap();
-        let start = *LAST_SYNCED.lock().unwrap();
-        for history in history_list[start..].iter() {
-            writeln!(file, "{}", history).unwrap();
+        if let Some(mut file) = open_file_for_write(path, true) {
+            let history_list = HISTORY.lock().unwrap();
+            let start = *LAST_SYNCED.lock().unwrap();
+            for history in history_list[start..].iter() {
+                let _ = writeln!(file, "{}", history);
+            }
+            *LAST_SYNCED.lock().unwrap() = history_list.len();
         }
-        *LAST_SYNCED.lock().unwrap() = history_list.len();
         return;
     }
 }
@@ -504,7 +500,12 @@ fn handle_command(args: Vec<String>, path: &str, redirect: &Redirect) {
     ensure_redirect_files(redirect);
     let cmd = args[0].as_str();
     match cmd {
-        "exit" => process::exit(0),
+        "exit" => {
+            let histfile = HISTFILE.lock().unwrap();
+            let histfile = Path::new(&*histfile);
+            write_history_to_file(histfile);
+            process::exit(0)
+        }
         "echo" => write_output(&args[1..].join(" "), redirect),
         "type" => {
             if let Some(target) = args.get(1) {
@@ -802,6 +803,8 @@ fn list_history(recent_num: i32, redirect: &Redirect) {
     }
 }
 
+static HISTFILE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+
 // ─── Main Loop ──────────────────────────────────────────────────────
 
 fn main() {
@@ -814,6 +817,10 @@ fn main() {
     rl.set_helper(Some(ShellHelper));
 
     let histfile = env::var("HISTFILE").unwrap_or_default();
+    {
+        let mut guard = HISTFILE.lock().unwrap();
+        *guard = histfile.clone();
+    }
     let histfile = Path::new(&histfile);
     read_history_from_file(histfile);
 
